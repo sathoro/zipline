@@ -154,7 +154,7 @@ def get_benchmark_filename(symbol):
     return "%s_benchmark.csv" % symbol
 
 
-def load_market_data(bm_symbol='^GSPC'):
+def load_market_data(bm_symbol='^GSPC', with_treasury=True):
     bm_filepath = get_data_filepath(get_benchmark_filename(bm_symbol))
     try:
         saved_benchmarks = pd.Series.from_csv(bm_filepath)
@@ -196,6 +196,9 @@ Fetching data from Yahoo Finance.
             benchmark_returns.index.tz.zone != 'UTC'
         ):
             benchmark_returns = benchmark_returns.tz_localize('UTC')
+
+    if not with_treasury:
+        return benchmark_returns, OrderedDict()
 
     # Get treasury curve module, filename & source from mapping.
     # Default to USA.

@@ -92,15 +92,18 @@ class TradingEnvironment(object):
         bm_symbol='^GSPC',
         exchange_tz="US/Eastern",
         max_date=None,
-        env_trading_calendar=tradingcalendar
+        env_trading_calendar=tradingcalendar,
+        full_performance_results=True
     ):
         self.prev_environment = self
         self.bm_symbol = bm_symbol
         if not load:
             load = load_market_data
 
+        fetch_treasury = full_performance_results
+
         self.benchmark_returns, treasury_curves_map = \
-            load(self.bm_symbol)
+            load(self.bm_symbol, fetch_treasury)
 
         self.treasury_curves = pd.DataFrame(treasury_curves_map).T
         if max_date:

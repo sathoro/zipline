@@ -98,7 +98,11 @@ class RiskMetricsCumulative(object):
         if `None` defaults to the `emission_rate` in `sim_params`.
         """
 
-        self.treasury_curves = trading.environment.treasury_curves
+        self.full_performance_results = sim_params.full_performance_results
+
+        if self.full_performance_results:
+            self.treasury_curves = trading.environment.treasury_curves
+
         self.start_date = sim_params.period_start.replace(
             hour=0, minute=0, second=0, microsecond=0
         )
@@ -247,62 +251,63 @@ class RiskMetricsCumulative(object):
         benchmark_cumulative_returns_to_date = \
             self.benchmark_cumulative_returns[:dt]
 
-        self.mean_benchmark_returns_cont[dt] = \
-            benchmark_cumulative_returns_to_date[dt] / self.num_trading_days
+        if self.full_performance_results:
+            self.mean_benchmark_returns_cont[dt] = \
+                benchmark_cumulative_returns_to_date[dt] / self.num_trading_days
 
-        self.mean_benchmark_returns = self.mean_benchmark_returns_cont[:dt]
+            self.mean_benchmark_returns = self.mean_benchmark_returns_cont[:dt]
 
-        self.annualized_mean_benchmark_returns_cont[dt] = \
-            self.mean_benchmark_returns_cont[dt] * 252
+            self.annualized_mean_benchmark_returns_cont[dt] = \
+                self.mean_benchmark_returns_cont[dt] * 252
 
-        self.annualized_mean_benchmark_returns = \
-            self.annualized_mean_benchmark_returns_cont[:dt]
+            self.annualized_mean_benchmark_returns = \
+                self.annualized_mean_benchmark_returns_cont[:dt]
 
-        if not self.algorithm_returns.index.equals(
-            self.benchmark_returns.index
-        ):
-            message = "Mismatch between benchmark_returns ({bm_count}) and \
-algorithm_returns ({algo_count}) in range {start} : {end} on {dt}"
-            message = message.format(
-                bm_count=len(self.benchmark_returns),
-                algo_count=len(self.algorithm_returns),
-                start=self.start_date,
-                end=self.end_date,
-                dt=dt
-            )
-            raise Exception(message)
+            if not self.algorithm_returns.index.equals(
+                self.benchmark_returns.index
+            ):
+                message = "Mismatch between benchmark_returns ({bm_count}) and \
+    algorithm_returns ({algo_count}) in range {start} : {end} on {dt}"
+                message = message.format(
+                    bm_count=len(self.benchmark_returns),
+                    algo_count=len(self.algorithm_returns),
+                    start=self.start_date,
+                    end=self.end_date,
+                    dt=dt
+                )
+                raise Exception(message)
 
-        self.update_current_max()
-        self.metrics.benchmark_volatility[dt] = \
-            self.calculate_volatility(self.benchmark_returns)
-        self.metrics.algorithm_volatility[dt] = \
-            self.calculate_volatility(self.algorithm_returns)
+            self.update_current_max()
+            self.metrics.benchmark_volatility[dt] = \
+                self.calculate_volatility(self.benchmark_returns)
+            self.metrics.algorithm_volatility[dt] = \
+                self.calculate_volatility(self.algorithm_returns)
 
-        # caching the treasury rates for the minutely case is a
-        # big speedup, because it avoids searching the treasury
-        # curves on every minute.
-        # In both minutely and daily, the daily curve is always used.
-        treasury_end = dt.replace(hour=0, minute=0)
-        if np.isnan(self.daily_treasury[treasury_end]):
-            treasury_period_return = choose_treasury(
-                self.treasury_curves,
-                self.start_date,
-                treasury_end
-            )
-            self.daily_treasury[treasury_end] = treasury_period_return
-        self.treasury_period_return = self.daily_treasury[treasury_end]
-        self.excess_returns[self.latest_dt] = (
-            self.algorithm_cumulative_returns[self.latest_dt]
-            -
-            self.treasury_period_return)
-        self.metrics.beta[dt] = self.calculate_beta()
-        self.metrics.alpha[dt] = self.calculate_alpha()
-        self.metrics.sharpe[dt] = self.calculate_sharpe()
-        self.metrics.downside_risk[dt] = self.calculate_downside_risk()
-        self.metrics.sortino[dt] = self.calculate_sortino()
-        self.metrics.information[dt] = self.calculate_information()
-        self.max_drawdown = self.calculate_max_drawdown()
-        self.max_drawdowns[dt] = self.max_drawdown
+            # caching the treasury rates for the minutely case is a
+            # big speedup, because it avoids searching the treasury
+            # curves on every minute.
+            # In both minutely and daily, the daily curve is always used.
+            treasury_end = dt.replace(hour=0, minute=0)
+            if np.isnan(self.daily_treasury[treasury_end]):
+                treasury_period_return = choose_treasury(
+                    self.treasury_curves,
+                    self.start_date,
+                    treasury_end
+                )
+                self.daily_treasury[treasury_end] = treasury_period_return
+            self.treasury_period_return = self.daily_treasury[treasury_end]
+            self.excess_returns[self.latest_dt] = (
+                self.algorithm_cumulative_returns[self.latest_dt]
+                -
+                self.treasury_period_return)
+            self.metrics.beta[dt] = self.calculate_beta()
+            self.metrics.alpha[dt] = self.calculate_alpha()
+            self.metrics.sharpe[dt] = self.calculate_sharpe()
+            self.metrics.downside_risk[dt] = self.calculate_downside_risk()
+            self.metrics.sortino[dt] = self.calculate_sortino()
+            self.metrics.information[dt] = self.calculate_information()
+            self.max_drawdown = self.calculate_max_drawdown()
+            self.max_drawdowns[dt] = self.max_drawdown
 
     def to_dict(self):
         """
@@ -311,26 +316,31 @@ algorithm_returns ({algo_count}) in range {start} : {end} on {dt}"
         """
         dt = self.latest_dt
         period_label = dt.strftime("%Y-%m")
+
         rval = {
-            'trading_days': self.num_trading_days,
-            'benchmark_volatility': self.metrics.benchmark_volatility[dt],
-            'algo_volatility': self.metrics.algorithm_volatility[dt],
-            'treasury_period_return': self.treasury_period_return,
             # Though the two following keys say period return,
             # they would be more accurately called the cumulative return.
             # However, the keys need to stay the same, for now, for backwards
             # compatibility with existing consumers.
             'algorithm_period_return': self.algorithm_cumulative_returns[dt],
-            'benchmark_period_return': self.benchmark_cumulative_returns[dt],
-            'beta': self.metrics.beta[dt],
-            'alpha': self.metrics.alpha[dt],
-            'sharpe': self.metrics.sharpe[dt],
-            'sortino': self.metrics.sortino[dt],
-            'information': self.metrics.information[dt],
-            'excess_return': self.excess_returns[dt],
-            'max_drawdown': self.max_drawdown,
-            'period_label': period_label
+            'benchmark_period_return': self.benchmark_cumulative_returns[dt]
         }
+
+        if self.full_performance_results:
+            rval.update({
+                'trading_days': self.num_trading_days,
+                'benchmark_volatility': self.metrics.benchmark_volatility[dt],
+                'algo_volatility': self.metrics.algorithm_volatility[dt],
+                'treasury_period_return': self.treasury_period_return,
+                'beta': self.metrics.beta[dt],
+                'alpha': self.metrics.alpha[dt],
+                'sharpe': self.metrics.sharpe[dt],
+                'sortino': self.metrics.sortino[dt],
+                'information': self.metrics.information[dt],
+                'excess_return': self.excess_returns[dt],
+                'max_drawdown': self.max_drawdown,
+                'period_label': period_label
+            })
 
         return {k: (None if check_entry(k, v) else v)
                 for k, v in iteritems(rval)}
